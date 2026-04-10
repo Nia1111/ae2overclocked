@@ -22,9 +22,5 @@
   "config.ae2_overclocked.cards.parallelCardMaxMultiplier": "並列処理カード (Max)の倍率",
   "config.ae2_overclocked.cards.superSpeedCardMultiplier": "超加速カードの倍率",
   "config.ae2_overclocked.protection": "保護設定",
-  "config.ae2_overclocked.protection.breakProtectionItemThreshold": "誤撤去防止アイテムしきい値",
-  "pack.ae2_overclocked.ae2oc_xingluo": "AE2 Overclocked xingluo's Pack",
-  "pack.ae2_overclocked.ae2oc_xingluo.desc": "Alternative textures by xingluo",
-  "pack.ae2_overclocked.ae2oc_xiabishilidie": "AE2 Overclocked xiabishilidie's Pack",
-  "pack.ae2_overclocked.ae2oc_xiabishilidie.desc": "Alternative textures by xiabishilidie"
+  "config.ae2_overclocked.protection.breakProtectionItemThreshold": "誤撤去防止アイテムしきい値"
 }
