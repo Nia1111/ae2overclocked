@@ -22,5 +22,9 @@
   "config.ae2_overclocked.cards.parallelCardMaxMultiplier": "Parallel Card Max Multiplier",
   "config.ae2_overclocked.cards.superSpeedCardMultiplier": "Super Speed Card Multiplier",
   "config.ae2_overclocked.protection": "Protection Settings",
-  "config.ae2_overclocked.protection.breakProtectionItemThreshold": "Break Protection Item Threshold"
+  "config.ae2_overclocked.protection.breakProtectionItemThreshold": "Break Protection Item Threshold",
+  "pack.ae2_overclocked.ae2oc_xingluo": "AE2 Overclocked xingluo's Pack",
+  "pack.ae2_overclocked.ae2oc_xingluo.desc": "Alternative textures by xingluo",
+  "pack.ae2_overclocked.ae2oc_xiabishilidie": "AE2 Overclocked xiabishilidie's Pack",
+  "pack.ae2_overclocked.ae2oc_xiabishilidie.desc": "Alternative textures by xiabishilidie"
 }

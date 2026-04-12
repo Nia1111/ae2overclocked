@@ -4,13 +4,8 @@ import appeng.api.config.Actionable;
 import appeng.api.config.PowerMultiplier;
 import appeng.api.networking.IGrid;
 import appeng.api.networking.IGridNode;
-import appeng.api.networking.IManagedGridNode;
 import appeng.api.networking.energy.IEnergyService;
-import appeng.api.networking.security.IActionHost;
-import appeng.api.networking.security.IActionSource;
-import appeng.api.networking.storage.IStorageService;
 import appeng.api.networking.ticking.TickRateModulation;
-import appeng.api.stacks.AEItemKey;
 import appeng.blockentity.misc.InscriberBlockEntity;
 import appeng.recipes.handlers.InscriberProcessType;
 import appeng.recipes.handlers.InscriberRecipe;
@@ -25,6 +20,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import xyz.moakiee.ae2_overclocked.Ae2OcConfig;
+import xyz.moakiee.ae2_overclocked.support.MENetworkOutputHelper;
 import xyz.moakiee.ae2_overclocked.support.OverclockCardRuntime;
 import xyz.moakiee.ae2_overclocked.support.ParallelCardRuntime;
 import xyz.moakiee.ae2_overclocked.support.ParallelEngine;
@@ -223,46 +219,15 @@ public abstract class MixinInscriberOverclock {
 
     @Unique
     private void ae2oc_transferOutputToNetwork(InscriberBlockEntity self) {
-        IManagedGridNode mainNode = self.getMainNode();
-        if (mainNode == null) {
-            return;
-        }
-
-        IGrid grid = mainNode.getGrid();
-        if (grid == null) {
-            return;
-        }
-
-        IStorageService storageService = grid.getStorageService();
-        if (storageService == null) {
-            return;
-        }
-
         ItemStack stack = this.sideItemHandler.getStackInSlot(1);
         if (stack.isEmpty()) {
             return;
         }
 
-        AEItemKey key = AEItemKey.of(stack);
-        if (key == null) {
-            return;
-        }
-
-        IActionSource actionSource = ae2oc_getActionSource(mainNode);
-        long inserted = storageService.getInventory().insert(key, stack.getCount(), Actionable.MODULATE, actionSource);
+        int inserted = MENetworkOutputHelper.tryInsertItem(self, null, stack, Actionable.MODULATE);
         if (inserted > 0) {
-            int toExtract = (int) Math.min(inserted, Integer.MAX_VALUE);
-            this.sideItemHandler.extractItem(1, toExtract, false);
+            this.sideItemHandler.extractItem(1, inserted, false);
         }
-    }
-
-    @Unique
-    private IActionSource ae2oc_getActionSource(IManagedGridNode mainNode) {
-        IGridNode node = mainNode.getNode();
-        if (node != null && node.getOwner() instanceof IActionHost actionHost) {
-            return IActionSource.ofMachine(actionHost);
-        }
-        return IActionSource.empty();
     }
 
     @Unique

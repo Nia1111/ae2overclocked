@@ -22,5 +22,9 @@
   "config.ae2_overclocked.cards.parallelCardMaxMultiplier": "并行卡 Max 倍率",
   "config.ae2_overclocked.cards.superSpeedCardMultiplier": "超速卡倍率",
   "config.ae2_overclocked.protection": "防护配置",
-  "config.ae2_overclocked.protection.breakProtectionItemThreshold": "防误拆阈值"
+  "config.ae2_overclocked.protection.breakProtectionItemThreshold": "防误拆阈值",
+  "pack.ae2_overclocked.ae2oc_xingluo": "AE2 超频替换材质包 - xingluo",
+  "pack.ae2_overclocked.ae2oc_xingluo.desc": "作者: xingluo",
+  "pack.ae2_overclocked.ae2oc_xiabishilidie": "AE2 超频替换材质包 - 虾比事李跌",
+  "pack.ae2_overclocked.ae2oc_xiabishilidie.desc": "作者: 虾比事李跌"
 }

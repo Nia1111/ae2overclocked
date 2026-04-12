@@ -4,10 +4,7 @@ import appeng.api.config.Actionable;
 import appeng.api.config.PowerMultiplier;
 import appeng.api.networking.IGridNode;
 import appeng.api.networking.energy.IEnergyService;
-import appeng.api.networking.security.IActionSource;
-import appeng.api.networking.storage.IStorageService;
 import appeng.api.networking.ticking.TickRateModulation;
-import appeng.api.stacks.AEItemKey;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.RecipeHolder;
 import org.spongepowered.asm.mixin.Mixin;
@@ -17,6 +14,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import xyz.moakiee.ae2_overclocked.Ae2OcConfig;
+import xyz.moakiee.ae2_overclocked.support.MENetworkOutputHelper;
 import xyz.moakiee.ae2_overclocked.support.OverclockCardRuntime;
 import xyz.moakiee.ae2_overclocked.support.ParallelCardRuntime;
 import xyz.moakiee.ae2_overclocked.support.ReflectionCache;
@@ -299,38 +297,7 @@ public abstract class MixinCrystalAssemblerOverclock {
 
     @Unique
     private int ae2oc_tryOutputToNetwork(IGridNode node, ItemStack outputStack, Actionable mode) {
-        if (outputStack.isEmpty()) {
-            return 0;
-        }
-        try {
-            var grid = node.getGrid();
-            if (grid == null) {
-                return 0;
-            }
-
-            IStorageService storageService = grid.getService(IStorageService.class);
-            if (storageService == null) {
-                return 0;
-            }
-
-            AEItemKey key = AEItemKey.of(outputStack);
-            if (key == null) {
-                return 0;
-            }
-
-            long inserted = storageService.getInventory().insert(
-                    key,
-                    outputStack.getCount(),
-                    mode,
-                    IActionSource.empty()
-            );
-            if (inserted <= 0) {
-                return 0;
-            }
-            return (int) Math.min(inserted, Integer.MAX_VALUE);
-        } catch (Exception e) {
-            return 0;
-        }
+        return MENetworkOutputHelper.tryInsertItem(this, node, outputStack, mode);
     }
 
     @Unique
@@ -344,7 +311,7 @@ public abstract class MixinCrystalAssemblerOverclock {
                 return;
             }
 
-            int inserted = ae2oc_tryOutputToNetwork(node, stack, Actionable.MODULATE);
+            int inserted = MENetworkOutputHelper.tryInsertItem(this, node, stack, Actionable.MODULATE);
             if (inserted > 0) {
                 extractItem.invoke(outputInv, 0, inserted, false);
             }

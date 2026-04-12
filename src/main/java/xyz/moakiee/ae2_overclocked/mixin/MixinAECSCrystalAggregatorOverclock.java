@@ -2,9 +2,6 @@ package xyz.moakiee.ae2_overclocked.mixin;
 
 import appeng.api.config.Actionable;
 import appeng.api.networking.IGridNode;
-import appeng.api.networking.security.IActionSource;
-import appeng.api.networking.storage.IStorageService;
-import appeng.api.stacks.AEItemKey;
 import appeng.api.upgrades.IUpgradeInventory;
 import appeng.api.upgrades.IUpgradeableObject;
 import appeng.util.inv.AppEngInternalInventory;
@@ -17,6 +14,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import xyz.moakiee.ae2_overclocked.Ae2OcConfig;
+import xyz.moakiee.ae2_overclocked.support.MENetworkOutputHelper;
 import xyz.moakiee.ae2_overclocked.support.OverclockCardRuntime;
 import xyz.moakiee.ae2_overclocked.support.ParallelCardRuntime;
 import xyz.moakiee.ae2_overclocked.support.ReflectionCache;
@@ -152,16 +150,12 @@ public abstract class MixinAECSCrystalAggregatorOverclock implements IUpgradeabl
             if (!ae2oc_canConsumeInputs(recipe)) break;
             ItemStack outputItem = ae2oc_getRecipeResult(recipe);
             if (outputItem == null || outputItem.isEmpty()) break;
-            if (!getOutputInv().insertItem(0, outputItem, true).isEmpty()
-                    && !ae2oc_canOutputToMENetwork(outputItem)) break;
+            if (!ae2oc_canStoreOutput(outputItem)) break;
             double extracted = ae2oc_extractPower(energyCost, Actionable.SIMULATE);
             if (extracted < energyCost - 0.01) break;
             ae2oc_extractPower(energyCost, Actionable.MODULATE);
             ae2oc_consumeInputs(recipe);
-            ItemStack leftover = getOutputInv().insertItem(0, outputItem, false);
-            if (!leftover.isEmpty()) {
-                ae2oc_outputToMENetwork(leftover);
-            }
+            ae2oc_storeOutput(outputItem);
             crafted++;
             ae2oc_setNeedRefresh(true);
             ae2oc_forceRefreshRecipe();
@@ -191,16 +185,12 @@ public abstract class MixinAECSCrystalAggregatorOverclock implements IUpgradeabl
             if (!ae2oc_canConsumeInputs(recipe)) break;
             ItemStack outputItem = ae2oc_getRecipeResult(recipe);
             if (outputItem == null || outputItem.isEmpty()) break;
-            if (!getOutputInv().insertItem(0, outputItem, true).isEmpty()
-                    && !ae2oc_canOutputToMENetwork(outputItem)) break;
+            if (!ae2oc_canStoreOutput(outputItem)) break;
             double extracted = ae2oc_extractPower(energyCost, Actionable.SIMULATE);
             if (extracted < energyCost - 0.01) break;
             ae2oc_extractPower(energyCost, Actionable.MODULATE);
             ae2oc_consumeInputs(recipe);
-            ItemStack leftover = getOutputInv().insertItem(0, outputItem, false);
-            if (!leftover.isEmpty()) {
-                ae2oc_outputToMENetwork(leftover);
-            }
+            ae2oc_storeOutput(outputItem);
             crafted++;
         }
 
@@ -498,54 +488,51 @@ public abstract class MixinAECSCrystalAggregatorOverclock implements IUpgradeabl
     }
 
     @Unique
-    private boolean ae2oc_canOutputToMENetwork(ItemStack outputStack) {
-        try {
-            IGridNode gridNode = ae2oc_getGridNode();
-            if (gridNode == null || gridNode.getGrid() == null) return false;
-            IStorageService storage = gridNode.getGrid().getService(IStorageService.class);
-            if (storage == null) return false;
-            AEItemKey key = AEItemKey.of(outputStack);
-            if (key == null) return false;
-            long accepted = storage.getInventory().insert(key, outputStack.getCount(), Actionable.SIMULATE, IActionSource.empty());
-            return accepted >= outputStack.getCount();
-        } catch (Exception e) {
-            return false;
+    private boolean ae2oc_canStoreOutput(ItemStack outputStack) {
+        int insertedToNetwork = MENetworkOutputHelper.tryInsertItem(this, ae2oc_getGridNode(), outputStack, Actionable.SIMULATE);
+        if (insertedToNetwork >= outputStack.getCount()) {
+            return true;
         }
+
+        ItemStack remainder = outputStack.copy();
+        remainder.setCount(outputStack.getCount() - insertedToNetwork);
+        return getOutputInv().insertItem(0, remainder, true).isEmpty();
+    }
+
+    @Unique
+    private void ae2oc_storeOutput(ItemStack outputStack) {
+        int insertedToNetwork = MENetworkOutputHelper.tryInsertItem(this, ae2oc_getGridNode(), outputStack, Actionable.MODULATE);
+        if (insertedToNetwork >= outputStack.getCount()) {
+            return;
+        }
+
+        ItemStack remainder = outputStack.copy();
+        remainder.setCount(outputStack.getCount() - insertedToNetwork);
+        getOutputInv().insertItem(0, remainder, false);
+    }
+
+    @Unique
+    private boolean ae2oc_canOutputToMENetwork(ItemStack outputStack) {
+        return MENetworkOutputHelper.tryInsertItem(this, ae2oc_getGridNode(), outputStack, Actionable.SIMULATE)
+                >= outputStack.getCount();
     }
 
     @Unique
     private void ae2oc_outputToMENetwork(ItemStack outputStack) {
-        try {
-            IGridNode gridNode = ae2oc_getGridNode();
-            if (gridNode == null || gridNode.getGrid() == null) return;
-            IStorageService storage = gridNode.getGrid().getService(IStorageService.class);
-            if (storage == null) return;
-            AEItemKey key = AEItemKey.of(outputStack);
-            if (key == null) return;
-            storage.getInventory().insert(key, outputStack.getCount(), Actionable.MODULATE, IActionSource.empty());
-        } catch (Exception ignored) {
-        }
+        MENetworkOutputHelper.tryInsertItem(this, ae2oc_getGridNode(), outputStack, Actionable.MODULATE);
     }
 
     @Unique
     private void ae2oc_flushOutputToMENetwork() {
         try {
-            IGridNode gridNode = ae2oc_getGridNode();
-            if (gridNode == null || gridNode.getGrid() == null) return;
-            IStorageService storage = gridNode.getGrid().getService(IStorageService.class);
-            if (storage == null) return;
-
             ItemStack stack = getOutputInv().getStackInSlot(0);
             if (stack.isEmpty()) return;
 
-            AEItemKey key = AEItemKey.of(stack);
-            if (key == null) return;
-
-            long inserted = storage.getInventory().insert(key, stack.getCount(), Actionable.MODULATE, IActionSource.empty());
+            int inserted = MENetworkOutputHelper.tryInsertItem(this, ae2oc_getGridNode(), stack, Actionable.MODULATE);
             if (inserted >= stack.getCount()) {
                 getOutputInv().setItemDirect(0, ItemStack.EMPTY);
             } else if (inserted > 0) {
-                stack.shrink((int) inserted);
+                stack.shrink(inserted);
             }
         } catch (Exception ignored) {
         }

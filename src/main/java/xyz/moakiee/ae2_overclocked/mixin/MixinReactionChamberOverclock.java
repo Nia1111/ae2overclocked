@@ -4,13 +4,11 @@ import appeng.api.config.Actionable;
 import appeng.api.config.PowerMultiplier;
 import appeng.api.networking.IGridNode;
 import appeng.api.networking.energy.IEnergyService;
-import appeng.api.networking.security.IActionSource;
-import appeng.api.networking.storage.IStorageService;
 import appeng.api.networking.ticking.TickRateModulation;
 import appeng.api.stacks.AEFluidKey;
-import appeng.api.stacks.AEItemKey;
 import appeng.api.stacks.GenericStack;
 import xyz.moakiee.ae2_overclocked.Ae2OcConfig;
+import xyz.moakiee.ae2_overclocked.support.MENetworkOutputHelper;
 import xyz.moakiee.ae2_overclocked.support.OverclockCardRuntime;
 import xyz.moakiee.ae2_overclocked.support.ParallelCardRuntime;
 import xyz.moakiee.ae2_overclocked.support.ParallelEngine;
@@ -208,11 +206,7 @@ public abstract class MixinReactionChamberOverclock {
             ParallelEngine.ParallelResult result = ParallelEngine.calculate(
                     parallelMultiplier, minInputCount, 1, outputItem,
                     (stack, simulate) -> {
-                        try {
-                            return (ItemStack) insertItem.invoke(outputInv, 0, stack, simulate);
-                        } catch (Exception e) {
-                            return stack;
-                        }
+                        return ae2oc_insertItemWithNetworkFallback(self, node, outputInv, insertItem, stack, simulate);
                     },
                     availableEnergy, unitEnergy
             );
@@ -225,16 +219,14 @@ public abstract class MixinReactionChamberOverclock {
             ItemStack outputStack = outputItem.copy();
             int totalOutput = outputStack.getCount() * actualParallel;
             outputStack.setCount(totalOutput);
-            insertItem.invoke(outputInv, 0, outputStack, false);
-            if (parallelMultiplier > 1 || OverclockCardRuntime.hasOverclockCard(self)) {
-                ae2oc_transferItemOutputToNetwork(node, outputInv);
-            }
+            ae2oc_insertItemWithNetworkFallback(self, node, outputInv, insertItem, outputStack, false);
+            ae2oc_transferItemOutputToNetwork(node, outputInv);
         } else {
             Method getResultFluid = ReflectionCache.getMethod(recipe.getClass(), "getResultFluid");
             if (getResultFluid == null) return;
             FluidStack outputFluid = (FluidStack) getResultFluid.invoke(recipe);
 
-            int fluidOutputLimit = ae2oc_getFluidOutputLimit(fluidInv, outputFluid, parallelMultiplier);
+            int fluidOutputLimit = ae2oc_getFluidOutputLimit(self, node, fluidInv, outputFluid, parallelMultiplier);
 
             ParallelEngine.ParallelResult result = ParallelEngine.calculateSimple(
                     parallelMultiplier, minInputCount, 1,
@@ -249,11 +241,8 @@ public abstract class MixinReactionChamberOverclock {
 
             AEFluidKey fluidKey = AEFluidKey.of(outputFluid);
             int totalFluidAmount = outputFluid.getAmount() * actualParallel;
-            Method addMethod = ReflectionCache.getMethod(fluidInv.getClass(), "add", int.class, AEFluidKey.class, int.class);
-            if (addMethod != null) addMethod.invoke(fluidInv, 0, fluidKey, totalFluidAmount);
-            if (parallelMultiplier > 1 || OverclockCardRuntime.hasOverclockCard(self)) {
-                ae2oc_transferFluidOutputToNetwork(node, fluidInv);
-            }
+            ae2oc_insertFluidWithNetworkFallback(self, node, fluidInv, fluidKey, totalFluidAmount, false);
+            ae2oc_transferFluidOutputToNetwork(node, fluidInv);
         }
         Field ptField = ReflectionCache.getFieldHierarchy(self.getClass(), "processingTime");
         if (ptField != null) ptField.setInt(self, 0);
@@ -301,7 +290,7 @@ public abstract class MixinReactionChamberOverclock {
                 if (insertItem == null) return;
                 ItemStack totalOutput = this.ae2oc_cachedItemOutput.copy();
                 totalOutput.setCount(totalOutput.getCount() * extraRounds);
-                ItemStack leftover = (ItemStack) insertItem.invoke(outputInv, 0, totalOutput, false);
+                ItemStack leftover = ae2oc_insertItemWithNetworkFallback(self, node, outputInv, insertItem, totalOutput, false);
                 int actualInserted = totalOutput.getCount() - leftover.getCount();
                 int singleOutputCount = this.ae2oc_cachedItemOutput.getCount();
                 int actualExtra = singleOutputCount > 0 ? actualInserted / singleOutputCount : 0;
@@ -311,15 +300,9 @@ public abstract class MixinReactionChamberOverclock {
                 ae2oc_transferItemOutputToNetwork(node, outputInv);
             } else {
                 AEFluidKey fluidKey = AEFluidKey.of(this.ae2oc_cachedFluidOutput);
-                Method addMethod = ReflectionCache.getMethod(fluidInv.getClass(), "add", int.class, AEFluidKey.class, int.class);
                 int singleFluidAmount = this.ae2oc_cachedFluidOutput.getAmount();
                 int totalFluidAmount = singleFluidAmount * extraRounds;
-                Method canAdd = ReflectionCache.getMethod(fluidInv.getClass(), "canAdd", int.class, AEFluidKey.class, int.class);
-                int actualInserted = 0;
-                if (canAdd != null && (boolean) canAdd.invoke(fluidInv, 0, fluidKey, totalFluidAmount)) {
-                    if (addMethod != null) addMethod.invoke(fluidInv, 0, fluidKey, totalFluidAmount);
-                    actualInserted = totalFluidAmount;
-                }
+                int actualInserted = ae2oc_insertFluidWithNetworkFallback(self, node, fluidInv, fluidKey, totalFluidAmount, false);
                 int actualExtra = singleFluidAmount > 0 ? actualInserted / singleFluidAmount : 0;
                 if (actualExtra > 0) {
                     ae2oc_consumeBatchWithRecipe(this.ae2oc_cachedRecipe, inputInv, fluidInv, actualExtra);
@@ -406,11 +389,7 @@ public abstract class MixinReactionChamberOverclock {
                 return ParallelEngine.calculate(
                         cardMultiplier, minInputCount, 1, outputItem,
                         (stack, simulate) -> {
-                            try {
-                                return (ItemStack) insertItem.invoke(outputInv, 0, stack, simulate);
-                            } catch (Exception e) {
-                                return stack;
-                            }
+                            return ae2oc_insertItemWithNetworkFallback(self, node, outputInv, insertItem, stack, simulate);
                         },
                         availableEnergy, unitEnergy
                 ).actualParallel();
@@ -418,7 +397,7 @@ public abstract class MixinReactionChamberOverclock {
                 Method getResultFluid = ReflectionCache.getMethod(recipe.getClass(), "getResultFluid");
                 if (getResultFluid == null) return 1;
                 FluidStack outputFluid = (FluidStack) getResultFluid.invoke(recipe);
-                int fluidOutputLimit = ae2oc_getFluidOutputLimit(fluidInv, outputFluid, cardMultiplier);
+                int fluidOutputLimit = ae2oc_getFluidOutputLimit(self, node, fluidInv, outputFluid, cardMultiplier);
 
                 return ParallelEngine.calculateSimple(
                         cardMultiplier, minInputCount, 1,
@@ -504,28 +483,95 @@ public abstract class MixinReactionChamberOverclock {
     private static final int AE2OC_MAX_PARALLEL_LIMIT = 1_000_000_000;
 
     @Unique
-    private int ae2oc_getFluidOutputLimit(Object fluidInv, FluidStack outputFluid, int maxParallel) {
+    private int ae2oc_getFluidOutputLimit(Object self, IGridNode node, Object fluidInv, FluidStack outputFluid,
+                                          int maxParallel) {
         try {
             AEFluidKey fluidKey = AEFluidKey.of(outputFluid);
+            if (fluidKey == null) return 0;
             Method canAdd = ReflectionCache.getMethod(fluidInv.getClass(), "canAdd", int.class, AEFluidKey.class, int.class);
-            if (canAdd == null) return 0;
             int safeMaxParallel = Math.min(maxParallel, AE2OC_MAX_PARALLEL_LIMIT);
 
             int lo = 0, hi = safeMaxParallel;
             while (lo < hi) {
                 int mid = lo + (hi - lo + 1) / 2;
-                long testAmount = (long) outputFluid.getAmount() * mid;
-                if (testAmount > Integer.MAX_VALUE) {
+                long totalAmount = (long) outputFluid.getAmount() * mid;
+                long insertedToNetwork = MENetworkOutputHelper.tryInsert(self, node, fluidKey, totalAmount, Actionable.SIMULATE);
+                long remainder = totalAmount - insertedToNetwork;
+                if (remainder <= 0) {
+                    lo = mid;
+                    continue;
+                }
+                if (remainder > Integer.MAX_VALUE || canAdd == null) {
                     hi = mid - 1;
                     continue;
                 }
-                if ((boolean) canAdd.invoke(fluidInv, 0, fluidKey, (int) testAmount)) {
+                if ((boolean) canAdd.invoke(fluidInv, 0, fluidKey, (int) remainder)) {
                     lo = mid;
                 } else {
                     hi = mid - 1;
                 }
             }
             return lo;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    @Unique
+    private ItemStack ae2oc_insertItemWithNetworkFallback(Object self, IGridNode node, Object outputInv,
+                                                          Method insertItem, ItemStack stack, boolean simulate) {
+        if (stack.isEmpty()) {
+            return ItemStack.EMPTY;
+        }
+
+        try {
+            Actionable mode = simulate ? Actionable.SIMULATE : Actionable.MODULATE;
+            int insertedToNetwork = MENetworkOutputHelper.tryInsertItem(self, node, stack, mode);
+            if (insertedToNetwork >= stack.getCount()) {
+                return ItemStack.EMPTY;
+            }
+
+            ItemStack remainder = stack.copy();
+            remainder.setCount(stack.getCount() - insertedToNetwork);
+            return (ItemStack) insertItem.invoke(outputInv, 0, remainder, simulate);
+        } catch (Exception e) {
+            return stack;
+        }
+    }
+
+    @Unique
+    private int ae2oc_insertFluidWithNetworkFallback(Object self, IGridNode node, Object fluidInv, AEFluidKey fluidKey,
+                                                     int amount, boolean simulate) {
+        if (fluidKey == null || amount <= 0) {
+            return 0;
+        }
+
+        try {
+            Actionable mode = simulate ? Actionable.SIMULATE : Actionable.MODULATE;
+            long insertedToNetwork = MENetworkOutputHelper.tryInsert(self, node, fluidKey, amount, mode);
+            long remainder = amount - insertedToNetwork;
+            if (remainder <= 0) {
+                return amount;
+            }
+
+            if (remainder > Integer.MAX_VALUE) {
+                return (int) insertedToNetwork;
+            }
+
+            Method canAdd = ReflectionCache.getMethod(fluidInv.getClass(), "canAdd", int.class, AEFluidKey.class, int.class);
+            if (canAdd == null || !(boolean) canAdd.invoke(fluidInv, 0, fluidKey, (int) remainder)) {
+                return (int) insertedToNetwork;
+            }
+
+            if (!simulate) {
+                Method addMethod = ReflectionCache.getMethod(fluidInv.getClass(), "add", int.class, AEFluidKey.class, int.class);
+                if (addMethod == null) {
+                    return (int) insertedToNetwork;
+                }
+                addMethod.invoke(fluidInv, 0, fluidKey, (int) remainder);
+            }
+
+            return amount;
         } catch (Exception e) {
             return 0;
         }
@@ -689,32 +735,17 @@ public abstract class MixinReactionChamberOverclock {
     @Unique
     private void ae2oc_transferItemOutputToNetwork(IGridNode node, Object outputInv) {
         try {
-            var grid = node.getGrid();
-            if (grid == null) return;
-
-            IStorageService storageService = grid.getService(IStorageService.class);
-            if (storageService == null) return;
-
             Method getStackInSlot = ReflectionCache.getMethod(outputInv.getClass(), "getStackInSlot", int.class);
             Method setItemDirect = ReflectionCache.getMethod(outputInv.getClass(), "setItemDirect", int.class, ItemStack.class);
             if (getStackInSlot == null || setItemDirect == null) return;
             ItemStack stack = (ItemStack) getStackInSlot.invoke(outputInv, 0);
             if (stack.isEmpty()) return;
 
-            AEItemKey key = AEItemKey.of(stack);
-            if (key == null) return;
-
-            long inserted = storageService.getInventory().insert(
-                    key,
-                    stack.getCount(),
-                    Actionable.MODULATE,
-                    IActionSource.empty()
-            );
-
+            int inserted = MENetworkOutputHelper.tryInsertItem(this, node, stack, Actionable.MODULATE);
             if (inserted >= stack.getCount()) {
                 setItemDirect.invoke(outputInv, 0, ItemStack.EMPTY);
             } else if (inserted > 0) {
-                stack.shrink((int) inserted);
+                stack.shrink(inserted);
                 setItemDirect.invoke(outputInv, 0, stack);
             }
 
@@ -726,12 +757,6 @@ public abstract class MixinReactionChamberOverclock {
     @Unique
     private void ae2oc_transferFluidOutputToNetwork(IGridNode node, Object fluidInv) {
         try {
-            var grid = node.getGrid();
-            if (grid == null) return;
-
-            IStorageService storageService = grid.getService(IStorageService.class);
-            if (storageService == null) return;
-
             Method getStack = ReflectionCache.getMethod(fluidInv.getClass(), "getStack", int.class);
             Method setStack = ReflectionCache.getMethod(fluidInv.getClass(), "setStack", int.class, GenericStack.class);
             if (getStack == null || setStack == null) return;
@@ -746,13 +771,7 @@ public abstract class MixinReactionChamberOverclock {
 
             if (!(aeKey instanceof AEFluidKey fluidKey) || amount <= 0) return;
 
-            long inserted = storageService.getInventory().insert(
-                    fluidKey,
-                    amount,
-                    Actionable.MODULATE,
-                    IActionSource.empty()
-            );
-
+            long inserted = MENetworkOutputHelper.tryInsert(this, node, fluidKey, amount, Actionable.MODULATE);
             if (inserted >= amount) {
                 setStack.invoke(fluidInv, 0, null);
             } else if (inserted > 0) {

@@ -3,12 +3,11 @@ package xyz.moakiee.ae2_overclocked.mixin;
 import appeng.api.config.Actionable;
 import appeng.api.config.PowerMultiplier;
 import appeng.api.networking.energy.IEnergyService;
-import appeng.api.networking.storage.IStorageService;
 import appeng.api.networking.ticking.TickRateModulation;
-import appeng.api.stacks.AEItemKey;
 import appeng.recipes.handlers.InscriberProcessType;
 import appeng.recipes.handlers.InscriberRecipe;
 import xyz.moakiee.ae2_overclocked.Ae2OcConfig;
+import xyz.moakiee.ae2_overclocked.support.MENetworkOutputHelper;
 import xyz.moakiee.ae2_overclocked.support.OverclockCardRuntime;
 import xyz.moakiee.ae2_overclocked.support.ParallelCardRuntime;
 import xyz.moakiee.ae2_overclocked.support.ParallelEngine;
@@ -280,61 +279,7 @@ public abstract class MixinExInscriberThreadOverclock {
         if (stack.isEmpty()) {
             return 0;
         }
-        try {
-            Method getMainNode = ReflectionCache.getMethod(host.getClass(), "getMainNode");
-            if (getMainNode == null) return 0;
-            Object mainNode = getMainNode.invoke(host);
-            if (mainNode == null) {
-                return 0;
-            }
-
-            Method getGrid = ReflectionCache.getMethod(mainNode.getClass(), "getGrid");
-            if (getGrid == null) return 0;
-            Object grid = getGrid.invoke(mainNode);
-            if (!(grid instanceof appeng.api.networking.IGrid iGrid)) {
-                return 0;
-            }
-
-            IStorageService storageService = iGrid.getService(IStorageService.class);
-            if (storageService == null) {
-                return 0;
-            }
-
-            AEItemKey key = AEItemKey.of(stack);
-            if (key == null) {
-                return 0;
-            }
-
-            appeng.api.networking.security.IActionSource actionSource = ae2oc_getActionSource(host, mainNode);
-            long inserted = storageService.getInventory().insert(key, stack.getCount(), mode, actionSource);
-            if (inserted <= 0) {
-                return 0;
-            }
-            return (int) Math.min(inserted, Integer.MAX_VALUE);
-        } catch (Exception e) {
-            return 0;
-        }
-    }
-
-
-    @Unique
-    private appeng.api.networking.security.IActionSource ae2oc_getActionSource(Object host, Object mainNode) {
-        try {
-            if (mainNode != null) {
-                Method getNode = ReflectionCache.getMethod(mainNode.getClass(), "getNode");
-                if (getNode != null) {
-                    Object node = getNode.invoke(mainNode);
-                    if (node instanceof appeng.api.networking.IGridNode gridNode) {
-                        Object owner = gridNode.getOwner();
-                        if (owner instanceof appeng.api.networking.security.IActionHost actionHost) {
-                            return appeng.api.networking.security.IActionSource.ofMachine(actionHost);
-                        }
-                    }
-                }
-            }
-        } catch (Exception e) {
-        }
-        return appeng.api.networking.security.IActionSource.empty();
+        return MENetworkOutputHelper.tryInsertItem(host, null, stack, mode);
     }
 
     @Unique

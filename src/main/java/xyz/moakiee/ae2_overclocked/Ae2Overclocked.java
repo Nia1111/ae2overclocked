@@ -2,7 +2,10 @@ package xyz.moakiee.ae2_overclocked;
 
 import com.mojang.logging.LogUtils;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.packs.PackType;
+import net.minecraft.server.packs.repository.PackSource;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -10,10 +13,13 @@ import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
 import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
+import net.neoforged.neoforge.event.AddPackFindersEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.level.BlockEvent;
 import org.slf4j.Logger;
 import xyz.moakiee.ae2_overclocked.support.MachineBreakProtection;
+
+import java.util.Objects;
 
 @Mod(Ae2Overclocked.MODID)
 public class Ae2Overclocked {
@@ -28,6 +34,8 @@ public class Ae2Overclocked {
 
         modEventBus.addListener(this::commonSetup);
         NeoForge.EVENT_BUS.register(this);
+
+        modEventBus.addListener(this::onAddPackFinders);
 
         LOGGER.info("AE2 Overclocked initialized.");
     }
@@ -65,5 +73,27 @@ public class Ae2Overclocked {
                     true
             );
         }
+    }
+
+    private void onAddPackFinders(AddPackFindersEvent event) {
+        if (event.getPackType() == PackType.CLIENT_RESOURCES) {
+            registerBuiltinPack(event, "ae2oc_xingluo", Component.translatable("pack.ae2_overclocked.ae2oc_xingluo"));
+            registerBuiltinPack(event, "ae2oc_xiabishilidie", Component.translatable("pack.ae2_overclocked.ae2oc_xiabishilidie"));
+        }
+    }
+
+    private void registerBuiltinPack(AddPackFindersEvent event, String id, Component title) {
+        ResourceLocation packLocation = Objects.requireNonNull(
+                ResourceLocation.tryParse(MODID + ":resourcepacks/" + id),
+                "Invalid built-in pack location: " + id
+        );
+        event.addPackFinders(
+                packLocation,
+                PackType.CLIENT_RESOURCES,
+                title,
+                PackSource.BUILT_IN,
+                false,
+                net.minecraft.server.packs.repository.Pack.Position.TOP
+        );
     }
 }

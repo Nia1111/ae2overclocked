@@ -7,7 +7,6 @@ import appeng.api.stacks.AEFluidKey;
 import appeng.api.stacks.AEItemKey;
 import appeng.api.stacks.AEKey;
 import appeng.api.stacks.GenericStack;
-import appeng.api.networking.storage.IStorageService;
 import appeng.api.upgrades.IUpgradeInventory;
 import appeng.api.upgrades.IUpgradeableObject;
 import appeng.helpers.externalstorage.GenericStackInv;
@@ -20,6 +19,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import xyz.moakiee.ae2_overclocked.Ae2OcConfig;
+import xyz.moakiee.ae2_overclocked.support.MENetworkOutputHelper;
 import xyz.moakiee.ae2_overclocked.support.OverclockCardRuntime;
 import xyz.moakiee.ae2_overclocked.support.ParallelCardRuntime;
 import xyz.moakiee.ae2_overclocked.support.ReflectionCache;
@@ -156,7 +156,7 @@ public abstract class MixinAECSEntropyVariationReactionChamberOverclock implemen
         for (int i = 0; i < maxRounds; i++) {
             List<GenericStack> outputs = ae2oc_getRecipeOutputs(recipe);
             if (outputs == null || outputs.isEmpty()) break;
-            if (!ae2oc_canInsertOutputs(outputs) && !ae2oc_canOutputAllToMENetwork(outputs)) break;
+            if (!ae2oc_canStoreAllOutputs(outputs)) break;
             if (!ae2oc_canConsumeInputs(recipe)) break;
             double extracted = ae2oc_extractPower(energyCost, Actionable.SIMULATE);
             if (extracted < energyCost - 0.01) break;
@@ -189,7 +189,7 @@ public abstract class MixinAECSEntropyVariationReactionChamberOverclock implemen
         for (int i = 0; i < extraRounds; i++) {
             List<GenericStack> outputs = ae2oc_getRecipeOutputs(recipe);
             if (outputs == null || outputs.isEmpty()) break;
-            if (!ae2oc_canInsertOutputs(outputs) && !ae2oc_canOutputAllToMENetwork(outputs)) break;
+            if (!ae2oc_canStoreAllOutputs(outputs)) break;
             if (!ae2oc_canConsumeInputs(recipe)) break;
             double extracted = ae2oc_extractPower(energyCost, Actionable.SIMULATE);
             if (extracted < energyCost - 0.01) break;
@@ -237,12 +237,17 @@ public abstract class MixinAECSEntropyVariationReactionChamberOverclock implemen
 
     /** Check whether all outputs can be inserted. */
     @Unique
-    private boolean ae2oc_canInsertOutputs(List<GenericStack> outputs) {
+    private boolean ae2oc_canStoreAllOutputs(List<GenericStack> outputs) {
         try {
             IActionSource src = ae2oc_getActionSource();
             for (GenericStack stack : outputs) {
-                long inserted = getOutputInv().insert(stack.what(), stack.amount(), Actionable.SIMULATE, src);
-                if (inserted < stack.amount()) return false;
+                long insertedToNetwork = MENetworkOutputHelper.tryInsert(this, ae2oc_getGridNode(), stack.what(),
+                        stack.amount(), Actionable.SIMULATE);
+                long remainder = stack.amount() - insertedToNetwork;
+                if (remainder > 0) {
+                    long insertedToLocal = getOutputInv().insert(stack.what(), remainder, Actionable.SIMULATE, src);
+                    if (insertedToLocal < remainder) return false;
+                }
             }
             return true;
         } catch (Exception e) {
@@ -256,11 +261,11 @@ public abstract class MixinAECSEntropyVariationReactionChamberOverclock implemen
         try {
             IActionSource src = ae2oc_getActionSource();
             for (GenericStack stack : outputs) {
-                long inserted = getOutputInv().insert(stack.what(), stack.amount(), Actionable.MODULATE, src);
-                if (inserted < stack.amount()) {
-                    // Remainder goes to ME network
-                    long remainder = stack.amount() - inserted;
-                    ae2oc_outputToMENetwork(stack.what(), remainder);
+                long insertedToNetwork = MENetworkOutputHelper.tryInsert(this, ae2oc_getGridNode(), stack.what(),
+                        stack.amount(), Actionable.MODULATE);
+                long remainder = stack.amount() - insertedToNetwork;
+                if (remainder > 0) {
+                    getOutputInv().insert(stack.what(), remainder, Actionable.MODULATE, src);
                 }
             }
         } catch (Exception ignored) {
@@ -428,20 +433,7 @@ public abstract class MixinAECSEntropyVariationReactionChamberOverclock implemen
      */
     @Unique
     private boolean ae2oc_canOutputAllToMENetwork(List<GenericStack> outputs) {
-        try {
-            IGridNode gridNode = ae2oc_getGridNode();
-            if (gridNode == null || gridNode.getGrid() == null) return false;
-            IStorageService storage = gridNode.getGrid().getService(IStorageService.class);
-            if (storage == null) return false;
-            for (GenericStack stack : outputs) {
-                long accepted = storage.getInventory().insert(stack.what(), stack.amount(),
-                        Actionable.SIMULATE, IActionSource.empty());
-                if (accepted < stack.amount()) return false;
-            }
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
+        return MENetworkOutputHelper.canAcceptAll(this, ae2oc_getGridNode(), outputs);
     }
 
     /**
@@ -449,14 +441,7 @@ public abstract class MixinAECSEntropyVariationReactionChamberOverclock implemen
      */
     @Unique
     private void ae2oc_outputToMENetwork(AEKey what, long amount) {
-        try {
-            IGridNode gridNode = ae2oc_getGridNode();
-            if (gridNode == null || gridNode.getGrid() == null) return;
-            IStorageService storage = gridNode.getGrid().getService(IStorageService.class);
-            if (storage == null) return;
-            storage.getInventory().insert(what, amount, Actionable.MODULATE, IActionSource.empty());
-        } catch (Exception ignored) {
-        }
+        MENetworkOutputHelper.tryInsert(this, ae2oc_getGridNode(), what, amount, Actionable.MODULATE);
     }
 
     /**
@@ -466,10 +451,6 @@ public abstract class MixinAECSEntropyVariationReactionChamberOverclock implemen
     @Unique
     private void ae2oc_flushOutputToMENetwork() {
         try {
-            IGridNode gridNode = ae2oc_getGridNode();
-            if (gridNode == null || gridNode.getGrid() == null) return;
-            IStorageService storage = gridNode.getGrid().getService(IStorageService.class);
-            if (storage == null) return;
 
             GenericStackInv outputInv = getOutputInv();
             for (int slot = 0; slot < outputInv.size(); slot++) {
@@ -479,8 +460,8 @@ public abstract class MixinAECSEntropyVariationReactionChamberOverclock implemen
                 long amount = stack.amount();
                 if (what == null || amount <= 0) continue;
 
-                long inserted = storage.getInventory().insert(what, amount,
-                        Actionable.MODULATE, IActionSource.empty());
+                long inserted = MENetworkOutputHelper.tryInsert(this, ae2oc_getGridNode(), what, amount,
+                        Actionable.MODULATE);
                 if (inserted >= amount) {
                     // Fully pushed — clear the slot
                     outputInv.extract(slot, what, amount, Actionable.MODULATE);

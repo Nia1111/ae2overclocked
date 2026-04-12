@@ -6,9 +6,8 @@ import appeng.api.networking.IGridNode;
 import appeng.api.networking.energy.IEnergyService;
 import appeng.api.networking.storage.IStorageService;
 import appeng.api.networking.ticking.TickRateModulation;
-import appeng.api.networking.security.IActionSource;
-import appeng.api.stacks.AEItemKey;
 import xyz.moakiee.ae2_overclocked.Ae2OcConfig;
+import xyz.moakiee.ae2_overclocked.support.MENetworkOutputHelper;
 import xyz.moakiee.ae2_overclocked.support.OverclockCardRuntime;
 import xyz.moakiee.ae2_overclocked.support.ParallelCardRuntime;
 import xyz.moakiee.ae2_overclocked.support.ParallelEngine;
@@ -388,32 +387,15 @@ public abstract class MixinCircuitCutterOverclock {
     @Unique
     private void ae2oc_transferOutputToNetwork(IGridNode node, Object outputInv) {
         try {
-            var grid = node.getGrid();
-            if (grid == null) return;
-
-            IStorageService storageService = grid.getService(IStorageService.class);
-            if (storageService == null) return;
-
             Method getStackInSlot = ReflectionCache.getMethod(outputInv.getClass(), "getStackInSlot", int.class);
             Method extractItem = ReflectionCache.getMethod(outputInv.getClass(), "extractItem", int.class, int.class, boolean.class);
             if (getStackInSlot == null || extractItem == null) return;
             ItemStack stack = (ItemStack) getStackInSlot.invoke(outputInv, 0);
             if (stack.isEmpty()) return;
 
-            AEItemKey key = AEItemKey.of(stack);
-            if (key == null) return;
-
-                long inserted = storageService.getInventory().insert(
-                    key,
-                    stack.getCount(),
-                    Actionable.MODULATE,
-                    IActionSource.empty()
-                );
-
-            if (inserted >= stack.getCount()) {
-                extractItem.invoke(outputInv, 0, stack.getCount(), false);
-            } else if (inserted > 0) {
-                extractItem.invoke(outputInv, 0, (int) inserted, false);
+            int inserted = MENetworkOutputHelper.tryInsertItem(this, node, stack, Actionable.MODULATE);
+            if (inserted > 0) {
+                extractItem.invoke(outputInv, 0, inserted, false);
             }
 
         } catch (Exception e) {
@@ -423,36 +405,7 @@ public abstract class MixinCircuitCutterOverclock {
 
     @Unique
     private int ae2oc_tryOutputToNetwork(IGridNode node, ItemStack outputStack) {
-        try {
-            var grid = node.getGrid();
-            if (grid == null) {
-                return 0;
-            }
-
-            IStorageService storageService = grid.getService(IStorageService.class);
-            if (storageService == null) {
-                return 0;
-            }
-
-            AEItemKey key = AEItemKey.of(outputStack);
-            if (key == null) {
-                return 0;
-            }
-
-            var inventory = storageService.getInventory();
-
-            long inserted = inventory.insert(
-                key,
-                outputStack.getCount(),
-                Actionable.MODULATE,
-                IActionSource.empty()
-            );
-
-            return (int) inserted;
-
-        } catch (Exception e) {
-            return 0;
-        }
+        return MENetworkOutputHelper.tryInsertItem(this, node, outputStack, Actionable.MODULATE);
     }
 
     @Unique
