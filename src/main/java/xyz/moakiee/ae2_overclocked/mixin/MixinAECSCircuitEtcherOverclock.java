@@ -169,7 +169,8 @@ public abstract class MixinAECSCircuitEtcherOverclock implements IUpgradeableObj
         if (energyCost <= 0) return;
 
         // Flush existing outputs to ME network first to free up local slot space
-        ae2oc_flushOutputToMENetwork();
+        var outputTarget = MENetworkOutputHelper.resolveTarget(this, null);
+        ae2oc_flushOutputToMENetwork(outputTarget);
 
         int crafted = 0;
         for (int i = 0; i < maxRounds; i++) {
@@ -178,14 +179,14 @@ public abstract class MixinAECSCircuitEtcherOverclock implements IUpgradeableObj
             // Check output space
             ItemStack outputItem = ae2oc_getRecipeResult(recipe);
             if (outputItem == null || outputItem.isEmpty()) break;
-            if (!ae2oc_canStoreOutput(outputItem)) break;
+            if (!ae2oc_canStoreOutput(outputTarget, outputItem)) break;
             // Drain energy
             double extracted = ae2oc_extractPower(energyCost, Actionable.SIMULATE);
             if (extracted < energyCost - 0.01) break;
             ae2oc_extractPower(energyCost, Actionable.MODULATE);
             // Consume inputs and write output
             ae2oc_consumeInputs(recipe);
-            ae2oc_storeOutput(outputItem);
+            ae2oc_storeOutput(outputTarget, outputItem);
             crafted++;
             // Refresh recipe state after consuming ingredients
             ae2oc_setNeedRefresh(true);
@@ -198,7 +199,7 @@ public abstract class MixinAECSCircuitEtcherOverclock implements IUpgradeableObj
         if (crafted > 0) {
             ae2oc_setRecipeProgress(0);
             // Final flush: push all remaining local output to ME network
-            ae2oc_flushOutputToMENetwork();
+            ae2oc_flushOutputToMENetwork(outputTarget);
             ae2oc_setChanged();
         }
     }
@@ -215,25 +216,26 @@ public abstract class MixinAECSCircuitEtcherOverclock implements IUpgradeableObj
         if (energyCost <= 0) return;
 
         // Flush existing outputs to ME network first
-        ae2oc_flushOutputToMENetwork();
+        var outputTarget = MENetworkOutputHelper.resolveTarget(this, null);
+        ae2oc_flushOutputToMENetwork(outputTarget);
 
         int crafted = 0;
         for (int i = 0; i < extraRounds; i++) {
             if (!ae2oc_canConsumeInputs(recipe)) break;
             ItemStack outputItem = ae2oc_getRecipeResult(recipe);
             if (outputItem == null || outputItem.isEmpty()) break;
-            if (!ae2oc_canStoreOutput(outputItem)) break;
+            if (!ae2oc_canStoreOutput(outputTarget, outputItem)) break;
             double extracted = ae2oc_extractPower(energyCost, Actionable.SIMULATE);
             if (extracted < energyCost - 0.01) break;
             ae2oc_extractPower(energyCost, Actionable.MODULATE);
             ae2oc_consumeInputs(recipe);
-            ae2oc_storeOutput(outputItem);
+            ae2oc_storeOutput(outputTarget, outputItem);
             crafted++;
         }
 
         if (crafted > 0) {
             ae2oc_setNeedRefresh(true);
-            ae2oc_flushOutputToMENetwork();
+            ae2oc_flushOutputToMENetwork(outputTarget);
             ae2oc_setChanged();
         }
     }
@@ -520,31 +522,9 @@ public abstract class MixinAECSCircuitEtcherOverclock implements IUpgradeableObj
 
     // ── ME network output helpers ─────────────────────────────────────────────
 
-    /**
-     * Get the IGridNode for this AE2CS machine via getMainNode().getNode().
-     */
     @Unique
-    private IGridNode ae2oc_getGridNode() {
-        try {
-            Method getMainNode = ReflectionCache.getMethod(this.getClass(), "getMainNode");
-            if (getMainNode == null) return null;
-            Object mainNode = getMainNode.invoke(this);
-            if (mainNode == null) return null;
-            Method getNode = ReflectionCache.getMethod(mainNode.getClass(), "getNode");
-            if (getNode == null) return null;
-            Object node = getNode.invoke(mainNode);
-            return (node instanceof IGridNode) ? (IGridNode) node : null;
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    /**
-     * Check if the ME network can accept the given output stack (simulate).
-     */
-    @Unique
-    private boolean ae2oc_canStoreOutput(ItemStack outputStack) {
-        int insertedToNetwork = MENetworkOutputHelper.tryInsertItem(this, ae2oc_getGridNode(), outputStack, Actionable.SIMULATE);
+    private boolean ae2oc_canStoreOutput(MENetworkOutputHelper.OutputTarget outputTarget, ItemStack outputStack) {
+        int insertedToNetwork = MENetworkOutputHelper.tryInsertItem(outputTarget, outputStack, Actionable.SIMULATE);
         if (insertedToNetwork >= outputStack.getCount()) {
             return true;
         }
@@ -555,8 +535,8 @@ public abstract class MixinAECSCircuitEtcherOverclock implements IUpgradeableObj
     }
 
     @Unique
-    private void ae2oc_storeOutput(ItemStack outputStack) {
-        int insertedToNetwork = MENetworkOutputHelper.tryInsertItem(this, ae2oc_getGridNode(), outputStack, Actionable.MODULATE);
+    private void ae2oc_storeOutput(MENetworkOutputHelper.OutputTarget outputTarget, ItemStack outputStack) {
+        int insertedToNetwork = MENetworkOutputHelper.tryInsertItem(outputTarget, outputStack, Actionable.MODULATE);
         if (insertedToNetwork >= outputStack.getCount()) {
             return;
         }
@@ -567,30 +547,12 @@ public abstract class MixinAECSCircuitEtcherOverclock implements IUpgradeableObj
     }
 
     @Unique
-    private boolean ae2oc_canOutputToMENetwork(ItemStack outputStack) {
-        return MENetworkOutputHelper.tryInsertItem(this, ae2oc_getGridNode(), outputStack, Actionable.SIMULATE)
-                >= outputStack.getCount();
-    }
-
-    /**
-     * Push a stack directly into the ME network storage.
-     */
-    @Unique
-    private void ae2oc_outputToMENetwork(ItemStack outputStack) {
-        MENetworkOutputHelper.tryInsertItem(this, ae2oc_getGridNode(), outputStack, Actionable.MODULATE);
-    }
-
-    /**
-     * Flush all items from the local output slot(s) into the ME network.
-     * CircuitEtcher has a single output slot (index 0).
-     */
-    @Unique
-    private void ae2oc_flushOutputToMENetwork() {
+    private void ae2oc_flushOutputToMENetwork(MENetworkOutputHelper.OutputTarget outputTarget) {
         try {
             ItemStack stack = getOutputInv().getStackInSlot(0);
             if (stack.isEmpty()) return;
 
-            int inserted = MENetworkOutputHelper.tryInsertItem(this, ae2oc_getGridNode(), stack, Actionable.MODULATE);
+            int inserted = MENetworkOutputHelper.tryInsertItem(outputTarget, stack, Actionable.MODULATE);
             if (inserted >= stack.getCount()) {
                 getOutputInv().setItemDirect(0, ItemStack.EMPTY);
             } else if (inserted > 0) {

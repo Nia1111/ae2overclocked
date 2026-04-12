@@ -143,19 +143,20 @@ public abstract class MixinAECSCrystalAggregatorOverclock implements IUpgradeabl
         int energyCost = ae2oc_getActiveRecipeEnergyCost();
         if (energyCost <= 0) return;
 
-        ae2oc_flushOutputToMENetwork();
+        var outputTarget = MENetworkOutputHelper.resolveTarget(this, null);
+        ae2oc_flushOutputToMENetwork(outputTarget);
 
         int crafted = 0;
         for (int i = 0; i < maxRounds; i++) {
             if (!ae2oc_canConsumeInputs(recipe)) break;
             ItemStack outputItem = ae2oc_getRecipeResult(recipe);
             if (outputItem == null || outputItem.isEmpty()) break;
-            if (!ae2oc_canStoreOutput(outputItem)) break;
+            if (!ae2oc_canStoreOutput(outputTarget, outputItem)) break;
             double extracted = ae2oc_extractPower(energyCost, Actionable.SIMULATE);
             if (extracted < energyCost - 0.01) break;
             ae2oc_extractPower(energyCost, Actionable.MODULATE);
             ae2oc_consumeInputs(recipe);
-            ae2oc_storeOutput(outputItem);
+            ae2oc_storeOutput(outputTarget, outputItem);
             crafted++;
             ae2oc_setNeedRefresh(true);
             ae2oc_forceRefreshRecipe();
@@ -166,7 +167,7 @@ public abstract class MixinAECSCrystalAggregatorOverclock implements IUpgradeabl
 
         if (crafted > 0) {
             ae2oc_setRecipeProgress(0);
-            ae2oc_flushOutputToMENetwork();
+            ae2oc_flushOutputToMENetwork(outputTarget);
             ae2oc_setChanged();
         }
     }
@@ -178,25 +179,26 @@ public abstract class MixinAECSCrystalAggregatorOverclock implements IUpgradeabl
         int energyCost = ae2oc_getActiveRecipeEnergyCostFromRecipe(recipe);
         if (energyCost <= 0) return;
 
-        ae2oc_flushOutputToMENetwork();
+        var outputTarget = MENetworkOutputHelper.resolveTarget(this, null);
+        ae2oc_flushOutputToMENetwork(outputTarget);
 
         int crafted = 0;
         for (int i = 0; i < extraRounds; i++) {
             if (!ae2oc_canConsumeInputs(recipe)) break;
             ItemStack outputItem = ae2oc_getRecipeResult(recipe);
             if (outputItem == null || outputItem.isEmpty()) break;
-            if (!ae2oc_canStoreOutput(outputItem)) break;
+            if (!ae2oc_canStoreOutput(outputTarget, outputItem)) break;
             double extracted = ae2oc_extractPower(energyCost, Actionable.SIMULATE);
             if (extracted < energyCost - 0.01) break;
             ae2oc_extractPower(energyCost, Actionable.MODULATE);
             ae2oc_consumeInputs(recipe);
-            ae2oc_storeOutput(outputItem);
+            ae2oc_storeOutput(outputTarget, outputItem);
             crafted++;
         }
 
         if (crafted > 0) {
             ae2oc_setNeedRefresh(true);
-            ae2oc_flushOutputToMENetwork();
+            ae2oc_flushOutputToMENetwork(outputTarget);
             ae2oc_setChanged();
         }
     }
@@ -472,24 +474,8 @@ public abstract class MixinAECSCrystalAggregatorOverclock implements IUpgradeabl
     // ── ME network output helpers ─────────────────────────────────────────────
 
     @Unique
-    private IGridNode ae2oc_getGridNode() {
-        try {
-            Method getMainNode = ReflectionCache.getMethod(this.getClass(), "getMainNode");
-            if (getMainNode == null) return null;
-            Object mainNode = getMainNode.invoke(this);
-            if (mainNode == null) return null;
-            Method getNode = ReflectionCache.getMethod(mainNode.getClass(), "getNode");
-            if (getNode == null) return null;
-            Object node = getNode.invoke(mainNode);
-            return (node instanceof IGridNode) ? (IGridNode) node : null;
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    @Unique
-    private boolean ae2oc_canStoreOutput(ItemStack outputStack) {
-        int insertedToNetwork = MENetworkOutputHelper.tryInsertItem(this, ae2oc_getGridNode(), outputStack, Actionable.SIMULATE);
+    private boolean ae2oc_canStoreOutput(MENetworkOutputHelper.OutputTarget outputTarget, ItemStack outputStack) {
+        int insertedToNetwork = MENetworkOutputHelper.tryInsertItem(outputTarget, outputStack, Actionable.SIMULATE);
         if (insertedToNetwork >= outputStack.getCount()) {
             return true;
         }
@@ -500,8 +486,8 @@ public abstract class MixinAECSCrystalAggregatorOverclock implements IUpgradeabl
     }
 
     @Unique
-    private void ae2oc_storeOutput(ItemStack outputStack) {
-        int insertedToNetwork = MENetworkOutputHelper.tryInsertItem(this, ae2oc_getGridNode(), outputStack, Actionable.MODULATE);
+    private void ae2oc_storeOutput(MENetworkOutputHelper.OutputTarget outputTarget, ItemStack outputStack) {
+        int insertedToNetwork = MENetworkOutputHelper.tryInsertItem(outputTarget, outputStack, Actionable.MODULATE);
         if (insertedToNetwork >= outputStack.getCount()) {
             return;
         }
@@ -512,23 +498,12 @@ public abstract class MixinAECSCrystalAggregatorOverclock implements IUpgradeabl
     }
 
     @Unique
-    private boolean ae2oc_canOutputToMENetwork(ItemStack outputStack) {
-        return MENetworkOutputHelper.tryInsertItem(this, ae2oc_getGridNode(), outputStack, Actionable.SIMULATE)
-                >= outputStack.getCount();
-    }
-
-    @Unique
-    private void ae2oc_outputToMENetwork(ItemStack outputStack) {
-        MENetworkOutputHelper.tryInsertItem(this, ae2oc_getGridNode(), outputStack, Actionable.MODULATE);
-    }
-
-    @Unique
-    private void ae2oc_flushOutputToMENetwork() {
+    private void ae2oc_flushOutputToMENetwork(MENetworkOutputHelper.OutputTarget outputTarget) {
         try {
             ItemStack stack = getOutputInv().getStackInSlot(0);
             if (stack.isEmpty()) return;
 
-            int inserted = MENetworkOutputHelper.tryInsertItem(this, ae2oc_getGridNode(), stack, Actionable.MODULATE);
+            int inserted = MENetworkOutputHelper.tryInsertItem(outputTarget, stack, Actionable.MODULATE);
             if (inserted >= stack.getCount()) {
                 getOutputInv().setItemDirect(0, ItemStack.EMPTY);
             } else if (inserted > 0) {

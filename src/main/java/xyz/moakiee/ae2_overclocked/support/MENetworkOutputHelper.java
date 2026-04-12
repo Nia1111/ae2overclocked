@@ -20,10 +20,20 @@ import java.util.List;
 
 public final class MENetworkOutputHelper {
 
+    public record OutputTarget(IGridNode node, IStorageService storage, IActionSource actionSource) {
+        public boolean isAvailable() {
+            return this.storage != null;
+        }
+    }
+
     private MENetworkOutputHelper() {
     }
 
     public static int tryInsertItem(Object sourceCandidate, IGridNode fallbackNode, ItemStack stack, Actionable mode) {
+        return tryInsertItem(resolveTarget(sourceCandidate, fallbackNode), stack, mode);
+    }
+
+    public static int tryInsertItem(OutputTarget target, ItemStack stack, Actionable mode) {
         if (stack == null || stack.isEmpty()) {
             return 0;
         }
@@ -33,10 +43,14 @@ public final class MENetworkOutputHelper {
             return 0;
         }
 
-        return clampToInt(tryInsert(sourceCandidate, fallbackNode, key, stack.getCount(), mode));
+        return clampToInt(tryInsert(target, key, stack.getCount(), mode));
     }
 
     public static long tryInsertFluid(Object sourceCandidate, IGridNode fallbackNode, FluidStack stack, Actionable mode) {
+        return tryInsertFluid(resolveTarget(sourceCandidate, fallbackNode), stack, mode);
+    }
+
+    public static long tryInsertFluid(OutputTarget target, FluidStack stack, Actionable mode) {
         if (stack == null || stack.isEmpty()) {
             return 0;
         }
@@ -46,25 +60,28 @@ public final class MENetworkOutputHelper {
             return 0;
         }
 
-        return tryInsert(sourceCandidate, fallbackNode, key, stack.getAmount(), mode);
+        return tryInsert(target, key, stack.getAmount(), mode);
     }
 
     public static long tryInsert(Object sourceCandidate, IGridNode fallbackNode, AEKey key, long amount, Actionable mode) {
+        return tryInsert(resolveTarget(sourceCandidate, fallbackNode), key, amount, mode);
+    }
+
+    public static long tryInsert(OutputTarget target, AEKey key, long amount, Actionable mode) {
         if (key == null || amount <= 0) {
             return 0;
         }
 
-        IStorageService storage = resolveStorageService(sourceCandidate, fallbackNode);
-        if (storage == null) {
+        if (target == null || !target.isAvailable()) {
             return 0;
         }
 
         try {
-            return Math.max(storage.getInventory().insert(
+            return Math.max(target.storage().getInventory().insert(
                     key,
                     amount,
                     mode,
-                    resolveActionSource(sourceCandidate, fallbackNode)
+                    target.actionSource()
             ), 0);
         } catch (Exception ignored) {
             return 0;
@@ -72,6 +89,10 @@ public final class MENetworkOutputHelper {
     }
 
     public static boolean canAcceptAll(Object sourceCandidate, IGridNode fallbackNode, List<GenericStack> stacks) {
+        return canAcceptAll(resolveTarget(sourceCandidate, fallbackNode), stacks);
+    }
+
+    public static boolean canAcceptAll(OutputTarget target, List<GenericStack> stacks) {
         if (stacks == null || stacks.isEmpty()) {
             return true;
         }
@@ -80,7 +101,7 @@ public final class MENetworkOutputHelper {
             if (stack == null || stack.what() == null || stack.amount() <= 0) {
                 continue;
             }
-            if (tryInsert(sourceCandidate, fallbackNode, stack.what(), stack.amount(), Actionable.SIMULATE)
+            if (tryInsert(target, stack.what(), stack.amount(), Actionable.SIMULATE)
                     < stack.amount()) {
                 return false;
             }
@@ -89,13 +110,21 @@ public final class MENetworkOutputHelper {
     }
 
     public static IActionSource resolveActionSource(Object sourceCandidate, IGridNode fallbackNode) {
+        return resolveActionSourceWithNode(sourceCandidate, resolveGridNode(sourceCandidate, fallbackNode));
+    }
+
+    public static OutputTarget resolveTarget(Object sourceCandidate, IGridNode fallbackNode) {
+        IGridNode node = resolveGridNode(sourceCandidate, fallbackNode);
+        return new OutputTarget(node, resolveStorageService(node), resolveActionSourceWithNode(sourceCandidate, node));
+    }
+
+    private static IActionSource resolveActionSourceWithNode(Object sourceCandidate, IGridNode resolvedNode) {
         IActionSource reflected = resolveActionSourceDirect(sourceCandidate);
         if (reflected != null) {
             return reflected;
         }
 
-        IGridNode node = resolveGridNode(sourceCandidate, fallbackNode);
-        if (node != null && node.getOwner() instanceof IActionHost actionHost) {
+        if (resolvedNode != null && resolvedNode.getOwner() instanceof IActionHost actionHost) {
             return IActionSource.ofMachine(actionHost);
         }
 
@@ -103,7 +132,10 @@ public final class MENetworkOutputHelper {
     }
 
     public static IStorageService resolveStorageService(Object sourceCandidate, IGridNode fallbackNode) {
-        IGridNode node = resolveGridNode(sourceCandidate, fallbackNode);
+        return resolveStorageService(resolveGridNode(sourceCandidate, fallbackNode));
+    }
+
+    public static IStorageService resolveStorageService(IGridNode node) {
         if (node == null) {
             return null;
         }
