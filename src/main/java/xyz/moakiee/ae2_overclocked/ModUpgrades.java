@@ -7,6 +7,7 @@ import appeng.core.localization.GuiText;
 import com.mojang.logging.LogUtils;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.level.ItemLike;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -44,8 +45,8 @@ public final class ModUpgrades {
                 // 超速卡：EAE I/O Port & EAE buses
                 registerSuperSpeedForMachineId(eaeModId + ":ex_io_port");
                 registerSuperSpeedForMachineId(eaeModId + ":tag_export_bus");
-                registerSuperSpeedForMachineId(eaeModId + ":ex_import_bus", "group.ex_io_bus_part");
-                registerSuperSpeedForMachineId(eaeModId + ":ex_export_bus", "group.ex_io_bus_part");
+                registerSuperSpeedForItemId(eaeModId + ":ex_import_bus_part", "group.ex_io_bus_part");
+                registerSuperSpeedForItemId(eaeModId + ":ex_export_bus_part", "group.ex_io_bus_part");
             }
 
             if (ModList.get().isLoaded("advanced_ae")) {
@@ -110,6 +111,26 @@ public final class ModUpgrades {
             Upgrades.add(ModItems.SUPER_SPEED_CARD.get(), block, 1, tooltipGroup);
         } else {
             Upgrades.add(ModItems.SUPER_SPEED_CARD.get(), block, 1);
+        }
+    }
+
+    private static void registerSuperSpeedForItemId(String id, String tooltipGroup) {
+        ResourceLocation key = ResourceLocation.tryParse(id);
+        if (key == null) {
+            LOGGER.warn("[AE2OC] Invalid item id: {}", id);
+            return;
+        }
+
+        Item item = BuiltInRegistries.ITEM.getOptional(key).orElse(null);
+        if (item == null) {
+            LOGGER.info("[AE2OC] Skip super speed item not found: {}", id);
+            return;
+        }
+
+        if (tooltipGroup != null) {
+            Upgrades.add(ModItems.SUPER_SPEED_CARD.get(), item, 1, tooltipGroup);
+        } else {
+            Upgrades.add(ModItems.SUPER_SPEED_CARD.get(), item, 1);
         }
     }
 }
